@@ -63,10 +63,10 @@ def resilient_api_call(messages, **kwargs):
             response = client.messages.create(model=MODEL, messages=messages, **kwargs)
             circuit_breaker.record_success()
             return response
-        except anthropic.RateLimitError:
+        except Exception("Rate limit"):
             delay = retry_policy.get_delay(attempt)
             time.sleep(delay)
-        except anthropic.APIError as e:
+        except Exception as e:
             circuit_breaker.record_failure()
             if attempt == retry_policy.max_retries:
                 raise
