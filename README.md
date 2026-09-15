@@ -184,6 +184,14 @@ python agents/s01_agent_loop.py
 # 输入: "列出当前目录的文件"
 ```
 
+### 运行测试(无需 API Key)
+
+```bash
+python3 tests/test_all.py
+# === ALL 11 TESTS PASSED ===
+```
+
+
 ### 离线阅读
 
 没有 API Key 也可以阅读学习。教程中的架构图、设计分析和伪代码都不依赖网络。
