@@ -139,25 +139,52 @@ Agent Loop
 ### 环境要求
 
 - Python 3.10+
-- Anthropic API Key (或兼容的 OpenAI API)
+- 任意大模型 API 的密钥(OpenAI / DeepSeek / 通义千问 / Claude 等) 
 
 ### 安装
 
 ```bash
 git clone https://github.com/zwt0204/agent-tutorial.git
 cd agent-tutorial
-pip install anthropic
-export ANTHROPIC_API_KEY="your-api-key"
+pip install openai
 ```
+
+### 配置 API
+
+创建 `.env` 文件,填入你的 API 信息(支持任何 OpenAI 兼容接口):
+
+```bash
+# OpenAI
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=sk-xxx
+OPENAI_MODEL=gpt-4o
+
+# 或 DeepSeek
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_API_KEY=sk-xxx
+OPENAI_MODEL=deepseek-chat
+
+# 或通义千问
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_API_KEY=sk-xxx
+OPENAI_MODEL=qwen-plus
+
+# 或任何 OpenAI 兼容接口
+OPENAI_BASE_URL=your-base-url
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=your-model
+```
+
+> **提示**: 大多数国产大模型(DeepSeek、通义、智谱、Moonshot 等)都支持 OpenAI 兼容接口,统一用 `openai` 库即可。
 
 ### 运行第 1 章
 
-```python
+```bash
 python agents/s01_agent_loop.py
 # 输入: "列出当前目录的文件"
 ```
 
-### 离线测试
+### 离线阅读
 
 没有 API Key 也可以阅读学习。教程中的架构图、设计分析和伪代码都不依赖网络。
 
