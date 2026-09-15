@@ -1,0 +1,101 @@
+site_name: AI Agent 工程实战
+site_url: https://zwt0204.github.io/agent-tutorial/
+site_description: 从零构建生产级 Agent Harness 的渐进式教程
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+
+plugins:
+  - search
+  - i18n:
+      default_language: zh
+      languages:
+        - locale: zh
+          default: true
+          name: 中文
+          build: true
+        - locale: en
+          name: English
+          build: true
+
+nav:
+  - 首页: index.md
+  - 参考: references.md
+  - 中文教程:
+      - 第1章 Agent Loop: zh/s01-agent-loop.md
+      - 第2章 工具与文件: zh/s02-tool-use.md
+      - 第3章 权限系统: zh/s03-permission.md
+      - 第4章 Hook解耦: zh/s04-hooks.md
+      - 第5章 会话计划: zh/s05-todo.md
+      - 第6章 子Agent: zh/s06-subagent.md
+      - 第7章 Skill系统: zh/s07-skill-loading.md
+      - 第8章 上下文压缩: zh/s08-context-compact.md
+      - 第9章 文件记忆: zh/s09-memory.md
+      - 第10章 动态上下文: zh/s10-dynamic-prompt.md
+      - 第11章 API韧性: zh/s11-api-resilience.md
+      - 第12章 任务引擎: zh/s12-task-engine.md
+      - 第13章 异步操作: zh/s13-async.md
+      - 第14章 Cron调度: zh/s14-cron.md
+      - 第15章 Inbox机制: zh/s15-inbox.md
+      - 第16章 协议审批: zh/s16-protocols.md
+      - 第17章 自治Agent: zh/s17-autonomous.md
+      - 第18章 Worktree隔离: zh/s18-worktree.md
+      - 第19章 MCP集成: zh/s19-mcp.md
+      - 第20章 完整Harness: zh/s20-harness.md
+  - English:
+      - Ch1 Agent Loop: en/s01-agent-loop.md
+      - Ch2 Tools & Files: en/s02-tool-use.md
+      - Ch3 Permissions: en/s03-permission.md
+      - Ch4 Hooks: en/s04-hooks.md
+      - Ch5 Planning: en/s05-todo.md
+      - Ch6 Sub-Agents: en/s06-subagent.md
+      - Ch7 Skills: en/s07-skill-loading.md
+      - Ch8 Compression: en/s08-context-compact.md
+      - Ch9 Memory: en/s09-memory.md
+      - Ch10 Dynamic Context: en/s10-dynamic-prompt.md
+      - Ch11 API Resilience: en/s11-api-resilience.md
+      - Ch12 Task Engine: en/s12-task-engine.md
+      - Ch13 Async Tasks: en/s13-async.md
+      - Ch14 Cron: en/s14-cron.md
+      - Ch15 Inbox: en/s15-inbox.md
+      - Ch16 Protocols: en/s16-protocols.md
+      - Ch17 Autonomous: en/s17-autonomous.md
+      - Ch18 Worktree: en/s18-worktree.md
+      - Ch19 MCP: en/s19-mcp.md
+      - Ch20 Full Harness: en/s20-harness.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
