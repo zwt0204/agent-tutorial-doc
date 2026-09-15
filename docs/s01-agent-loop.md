@@ -123,9 +123,11 @@ messages = [
 ## 五步拆解 + 完整函数
 
 ```python
-import anthropic
+from openai import OpenAI
 
-client = anthropic.Anthropic()
+client = OpenAI()
+import os
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 MODEL = "claude-sonnet-4-20250514"
 SYSTEM = "You are a helpful assistant with access to a bash tool."
 
