@@ -1,3 +1,5 @@
+[English](./README-en.md) | 中文
+
 # AI Agent 工程实战:从零构建生产级 Agent Harness
 
 一套渐进式中文教程,带你从最小的 Agent Loop 开始,逐步搭建出一个完整的、可用于生产的 AI Agent 系统。
@@ -20,7 +22,9 @@ Agent 的核心是一个神经网络 -- Transformer、一个被训练出来的�
 
 - **2013 -- DeepMind DQN 玩 Atari。** 一个神经网络,只接收原始像素和游戏分数,学会了 7 款 Atari 2600 游戏。没有游戏专属规则。没有决策树。一个模型,从经验中学习。那个模型就是 Agent。
 - **2019 -- OpenAI Five 征服 Dota 2。** 五个神经网络,在 10 个月内与自己对战了 45,000 年的 Dota 2,击败 TI8 世界冠军 OG。没有脚本化的策略。模型完全通过自我对弈学会了团队协作。
-- **2024-2025 -- LLM Agent 重塑软件工程。** Claude、GPT、Gemini -- 在人类全部代码和推理上训练的大语言模型 -- 被部署为编程 Agent。架构与之前每一个 Agent 完全相同:一个训练好的模型,放入一个环境,给予感知和行动的工具。
+- **2024 -- LLM Agent 元年。** Claude 3.5 Sonnet、GPT-4o、Gemini 1.5 -- 大语言模型被部署为编程 Agent。Cursor、Windsurf、Cline 等 AI IDE 兴起,Agent 直接在终端读写文件、执行命令、调试代码。
+- **2025 -- Agent 基础设施爆发。** Anthropic 发布 Claude Code,开源 Agent Harness 的工程范式;OpenAI 发布 Codex Agent,支持后台异步编程;Google 发布 Jules,多 Agent 协作修复代码;MCP (Model Context Protocol) 成为工具接入的事实标准。
+- **2026 -- Agent 进入生产。** Cursor Agent Mode 成为日常开发工具,GitHub Copilot Workspace 支持跨文件重构,Claude Code 和 Codex 被企业大规模采用。Agent 不再是演示,而是生产力基础设施。SWE-bench 顶级模型解决率超过 70%,Agent 在真实开源项目中的 bug 修复能力达到中级工程师水平。
 
 每一个里程碑都指向同一个事实:**Agency -- 那个感知、推理、行动的能力 -- 是训练出来的,不是编出来的。**
 
