@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第9章 文件记忆 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 9 章:文件记忆 -- 跨会话的持久化</h1><table>
+<tr></tr>
+</table><p>> *"压缩后 Agent 可能忘了自己是谁,记忆解决这个问题"*
+>
+> <strong>Harness 层</strong>: 记忆 -- 让 Agent 跨会话保持一致性。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 理解为什么上下文压缩后 Agent 会"失忆"。
+2. 实现 MemoryManager:remember / recall / forget。
+3. 设计记忆索引,支持基于关键词的检索。
+4. 将记忆与 Skill 系统结合,形成"长期知识"。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>上一章</td><td>理解上下文压缩和 transcript</td></tr>
+<tr><td>Python</td><td>pathlib、JSON、字典</td></tr>
+</table><h3>术语速查</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>Memory</strong></td><td>持久化到文件系统的知识条目,跨会话可检索</td></tr>
+<tr><td><strong>记忆索引</strong></td><td><code>index.json</code> 文件,记录所有记忆的 key、摘要、标签</td></tr>
+<tr><td><strong>canonical history</strong></td><td>压缩前保存的完整对话历史</td></tr>
+</table><p>---</p><h2>问题</h2><p>上下文压缩后,Agent 的消息历史被替换为摘要。之前做的决策、学到的项目结构、用户的偏好 -- 全部丢失。</p><p>---</p><h2>解决方案</h2><p>将关键信息持久化到文件系统:</p><pre><code class="language-">memory/
+  index.json           ← 记忆索引(元数据)
+  auth-decision.md     ← &quot;项目使用 JWT 认证&quot;
+  code-style.md        ← &quot;用户偏好 4 空格缩进&quot;
+  project-structure.md ← &quot;src/ 下有 5 个模块&quot;
+</code></pre><p>---</p><h2>工作原理</h2><pre><code class="language-python">from pathlib import Path
+import json</p><p>MEMORY_DIR = Path(&quot;./memory&quot;)</p><p>class MemoryManager:
+    def __init__(self):
+        MEMORY_DIR.mkdir(exist_ok=True)
+        self.index_path = MEMORY_DIR / &quot;index.json&quot;
+        self.index = self._load_index()</p><p>    def _load_index(self) -&gt; dict:
+        if self.index_path.exists():
+            return json.loads(self.index_path.read_text(encoding=&quot;utf-8&quot;))
+        return {&quot;entries&quot;: []}</p><p>    def _save_index(self):
+        self.index_path.write_text(json.dumps(self.index, indent=2), encoding=&quot;utf-8&quot;)</p><p>    def remember(self, key: str, value: str, tags: list = None):
+        entry = {&quot;key&quot;: key, &quot;value&quot;: value, &quot;tags&quot;: tags or [],
+                 &quot;timestamp&quot;: datetime.datetime.now().isoformat()}
+        self.index[&quot;entries&quot;].append(entry)
+        self._save_index()
+        (MEMORY_DIR / f&quot;{key}.md&quot;).write_text(value, encoding=&quot;utf-8&quot;)</p><p>    def recall(self, query: str) -&gt; str:
+        results = [e for e in self.index[&quot;entries&quot;]
+                   if query.lower() in e[&quot;key&quot;].lower() or query.lower() in e[&quot;value&quot;].lower()]
+        if not results:
+            return &quot;No relevant memories found.&quot;
+        lines = [&quot;Relevant memories:&quot;]
+        for e in results[:5]:
+            lines.append(f&quot;- {e[&#x27;key&#x27;]}: {e[&#x27;value&#x27;][:200]}&quot;)
+        return &quot;\n&quot;.join(lines)</p><p>    def forget(self, key: str):
+        self.index[&quot;entries&quot;] = [e for e in self.index[&quot;entries&quot;] if e[&quot;key&quot;] != key]
+        self._save_index()
+        p = MEMORY_DIR / f&quot;{key}.md&quot;
+        if p.exists():
+            p.unlink()</p><p>memory = MemoryManager()
+</code></pre><p>---</p><h2>相对 s08 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s08)</td><td>之后 (s09)</td></tr>
+<tr><td>记忆</td><td>无(压缩后丢失)</td><td>文件系统持久化</td></tr>
+<tr><td>跨会话</td><td>无</td><td>记忆索引可检索</td></tr>
+<tr><td>工具</td><td>7</td><td>9 (+remember, +recall)</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s09_memory.py
+</code></pre><p>1. <code>记住:这个项目使用 pytest 做测试</code>
+2. <code>记住:用户偏好 4 空格缩进</code>
+3. <code>回忆:这个项目用什么测试框架?</code>
+4. 检查 <code>memory/</code> 目录下的文件</p><p>---</p><h2>本章小结</h2><ul>
+<li>记忆持久化到文件系统,压缩后不丢失</li>
+<li>索引支持关键词检索</li>
+<li>remember / recall / forget 三个工具</li>
+</ul>
+            <div class="nav-bottom"><a href="s08.html">← 上一章</a><a href="index.html">目录</a><a href="s10.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

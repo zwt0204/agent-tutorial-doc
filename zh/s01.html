@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第1章 Agent Loop - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 1 章:Agent Loop -- 一个循环,就是模型与真实世界之间的全部距离</h1><table>
+<tr></tr>
+</table><p>> *"One loop is all you need"* -- 一个循环 = 一个 Agent。
+>
+> <strong>Harness 层</strong>: 循环 -- 模型与真实世界的第一道连接。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 用一句话说清 Agent 和"调用一次模型 API"的区别。
+2. 看懂一轮 Agent 对话在网络上传了哪些 JSON 字段。
+3. 自己手写一个不到 30 行、能跑起来的 Agent Loop。
+4. 说出这个循环在什么条件下结束,以及为什么必须有轮次上限。
+5. 在本机跑通第 1 章配套代码,并让 Agent 帮你执行一条命令。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>Python</td><td>能看懂函数定义、字典、列表,不需要熟悉高级特性</td></tr>
+<tr><td>命令行</td><td>能在终端里进入目录、运行 <code>pip</code> 和 <code>python</code> 命令</td></tr>
+<tr><td>大模型 API</td><td>知道"把消息发给模型、模型返回文本"这件事就够了</td></tr>
+<tr><td>上一章</td><td>无。这是第 1 章</td></tr>
+</table><h3>术语速查(本章第一次出现的词)</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>Agent Loop</strong></td><td>"问模型 → 执行工具 → 把结果喂回去 → 再问模型"的循环</td></tr>
+<tr><td><strong>Harness</strong>(挽具)</td><td>循环之外的所有代码:配置校验、工具注册、审批、轮次上限。模型负责决定,Harness 负责安全地落地</td></tr>
+<tr><td><strong>轮次(turn)</strong></td><td>一次"发请求给模型"算一轮。注意不是一次工具调用算一轮</td></tr>
+<tr><td><strong>tool_use</strong></td><td>模型回复中的一个块。非空表示"我要用工具",空表示"我说完了"</td></tr>
+<tr><td><strong>tool_result</strong></td><td>工具执行的返回结果,作为 user 消息追加到对话历史</td></tr>
+<tr><td><strong>stop_reason</strong></td><td>模型回复的停止原因。<code>tool_use</code> 表示要调工具,其他表示结束</td></tr>
+</table><p>---</p><h2>先说你现在是什么角色</h2><p>在还没有 Agent 之前,你用大模型的方式大概是这样的:</p><p>你在对话框输入"帮我看看当前目录有哪些 Python 文件"。模型输出了一条命令:</p><pre><code class="language-bash">ls *.py
+</code></pre><p>但它自己不跑。你切到终端,粘贴进去,回车,看到输出,再切回对话框,把输出复制进去。模型接着说"好,有 3 个文件,我来分析一下......"</p><p>每一次来回,你都在做同一件事:把工具结果手动传回给模型。这个时候,你其实是一个"人工循环" -- 模型和真实世界之间的中间层。</p><p><strong>Agent Loop 做的事情,就是把你从这个中间层里解放出来。</strong> 程序自动把模型的请求执行掉,把结果喂回去,循环往复,直到模型说"我说完了"。</p><p>---</p><h2>两个信号,一个循环</h2><p>整个 Agent Loop 的决策树只有两个分支:</p><pre><code class="language-">模型回复包含 tool_use?
+├── 是 → 执行工具,把结果追加到消息历史,再问模型
+└── 否 → 结束。模型的最终文本就是回答
+</code></pre><p>就这么简单。一个退出条件控制整个流程。</p><p>---</p><h2>看一眼真实的数据流</h2><p>假设你问 Agent:"当前目录有什么文件?"</p><p><strong>第一轮 -- 用户发起:</strong></p><pre><code class="language-json">messages = [
+  {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;当前目录有什么文件?&quot;}
+]
+</code></pre><p><strong>模型回复 -- 要调工具:</strong></p><pre><code class="language-json">{
+  &quot;content&quot;: [
+    {&quot;type&quot;: &quot;tool_use&quot;, &quot;name&quot;: &quot;bash&quot;, &quot;input&quot;: {&quot;command&quot;: &quot;ls&quot;}, &quot;id&quot;: &quot;call_001&quot;}
+  ],
+  &quot;stop_reason&quot;: &quot;tool_use&quot;
+}
+</code></pre><p><strong>程序执行工具,追加结果:</strong></p><pre><code class="language-json">messages = [
+  {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;当前目录有什么文件?&quot;},
+  {&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: [{&quot;type&quot;: &quot;tool_use&quot;, ...}]},
+  {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: [
+    {&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: &quot;call_001&quot;, &quot;content&quot;: &quot;main.py\ntest.py\n&quot;}
+  ]}
+]
+</code></pre><p><strong>第二轮 -- 再问模型:</strong></p><pre><code class="language-json">{
+  &quot;content&quot;: [{&quot;type&quot;: &quot;text&quot;, &quot;text&quot;: &quot;当前目录有 main.py 和 test.py 两个文件。&quot;}],
+  &quot;stop_reason&quot;: &quot;end_turn&quot;
+}
+</code></pre><p><code>stop_reason</code> 不是 <code>tool_use</code> 了 -- 循环结束。</p><p>---</p><h2>五步拆解 + 完整函数</h2><pre><code class="language-python">from openai import OpenAI</p><p>client = OpenAI()
+import os
+MODEL = os.getenv(&quot;OPENAI_MODEL&quot;, &quot;gpt-4o&quot;)
+MODEL = &quot;claude-sonnet-4-20250514&quot;
+SYSTEM = &quot;You are a helpful assistant with access to a bash tool.&quot;</p><p>TOOLS = [
+    {
+        &quot;name&quot;: &quot;bash&quot;,
+        &quot;description&quot;: &quot;Run a bash command and return output&quot;,
+        &quot;input_schema&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+                &quot;command&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Shell command to execute&quot;}
+            },
+            &quot;required&quot;: [&quot;command&quot;]
+        }
+    }
+]</p><p>def run_bash(command: str) -&gt; str:
+    import subprocess
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+    return result.stdout + result.stderr</p><p>def agent_loop(query: str):
+    messages = [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: query}]          # 1. 用户 prompt 作为第一条消息</p><p>    for turn in range(20):                                    # 2. 轮次上限,防止死循环
+        response = client.messages.create(                    # 3. 发给模型
+            model=MODEL, system=SYSTEM, messages=messages,
+            tools=TOOLS, max_tokens=8000,
+        )
+        messages.append({&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: response.content})</p><p>        if response.stop_reason != &quot;tool_use&quot;:                # 4. 模型没调工具 → 结束
+            return</p><p>        results = []
+        for block in response.content:                        # 5. 执行每个工具调用
+            if block.type == &quot;tool_use&quot;:
+                output = run_bash(block.input[&quot;command&quot;])
+                results.append({
+                    &quot;type&quot;: &quot;tool_result&quot;,
+                    &quot;tool_use_id&quot;: block.id,
+                    &quot;content&quot;: output,
+                })
+        messages.append({&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: results})</p><p>if __name__ == &quot;__main__&quot;:
+    query = input(&quot;You: &quot;)
+    agent_loop(query)
+</code></pre><p>不到 30 行,这就是整个 Agent。后面 19 章都在这个循环上叠加机制 -- <strong>循环本身始终不变</strong>。</p><p>---</p><h2>为什么必须有轮次上限</h2><p>模型可能陷入无限调工具的循环(比如反复读同一个文件试图找到不存在的内容)。<code>for turn in range(20)</code> 确保程序一定会退出。真实产品中这个上限通常是 50-100 轮。</p><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s01_agent_loop.py
+</code></pre><p>试试这些 prompt:</p><p>1. <code>列出当前目录的文件</code>
+2. <code>创建一个 hello.py 文件,里面打印 Hello, World!</code>
+3. <code>当前是什么时间?</code>
+4. <code>这个目录下有几个 Python 文件?</code></p><p>---</p><h2>本章小结</h2><ul>
+<li>Agent = 模型 + Harness(循环 + 工具 + 安全边界)</li>
+<li>Agent Loop 是一个"问模型 → 执行工具 → 喂回去"的循环</li>
+<li><code>stop_reason != "tool_use"</code> 是唯一的退出条件</li>
+<li>轮次上限防止死循环</li>
+<li>循环本身不随章节变化,后续章节只是在循环外围叠加能力</li>
+</ul>
+            <div class="nav-bottom"><a href="index.html">目录</a><a href="s02.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

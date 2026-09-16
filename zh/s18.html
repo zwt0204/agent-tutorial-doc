@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第18章 Worktree 隔离 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 18 章:Worktree 隔离 -- 并行开发的安全边界</h1><p><code>s01 > ... > s17 > [ s18 ]</code></p><p>> *"各干各的目录,互不干扰"* -- 任务管目标,worktree 管目录。
+>
+> <strong>Harness 层</strong>: 目录隔离 -- 永不碰撞的并行执行通道。</p><p>---</p><h2>问题</h2><p>所有任务共享一个目录。两个 Agent 同时重构不同模块 -- A 改 <code>config.py</code>,B 也改 <code>config.py</code>,未提交的改动互相污染。</p><h2>解决方案</h2><pre><code class="language-">Control plane (.tasks/)             Execution plane (.worktrees/)
++------------------+                +------------------------+
+<table>
+<tr><td>task_1.json</td><td></td><td>auth-refactor/</td></tr>
+<tr><td>worktree: &quot;auth-refactor&quot;</td><td>task_id: 1</td></tr>
+</table>
++------------------+                +------------------------+
+<table>
+<tr><td>task_2.json</td><td></td><td>ui-login/</td></tr>
+<tr><td>worktree: &quot;ui-login&quot;</td><td>task_id: 2</td></tr>
+</table>
++------------------+                +------------------------+
+</code></pre><h2>工作原理</h2><pre><code class="language-python">class WorktreeManager:
+    def __init__(self):
+        self.worktrees = {}
+        self.worktree_dir = Path(&quot;./worktrees&quot;)
+        self.worktree_dir.mkdir(exist_ok=True)</p><p>    def create(self, name: str, task_id: int = None) -&gt; str:
+        branch = f&quot;wt/{name}&quot;
+        path = self.worktree_dir / name
+        subprocess.run([&quot;git&quot;, &quot;worktree&quot;, &quot;add&quot;, &quot;-b&quot;, branch, str(path), &quot;HEAD&quot;],
+                       capture_output=True, text=True)
+        self.worktrees[name] = {&quot;path&quot;: path, &quot;branch&quot;: branch, &quot;task_id&quot;: task_id}
+        if task_id:
+            tasks.update(task_id, status=&quot;in_progress&quot;)
+        return f&quot;Created worktree &#x27;{name}&#x27;&quot;</p><p>    def run_in(self, name: str, command: str) -&gt; str:
+        path = self.worktrees[name][&quot;path&quot;]
+        result = subprocess.run(command, shell=True, cwd=str(path),
+                                capture_output=True, text=True, timeout=300)
+        return result.stdout + result.stderr</p><p>    def remove(self, name: str, complete_task: bool = False) -&gt; str:
+        wt = self.worktrees[name]
+        if complete_task and wt.get(&quot;task_id&quot;):
+            tasks.update(wt[&quot;task_id&quot;], status=&quot;completed&quot;)
+        subprocess.run([&quot;git&quot;, &quot;worktree&quot;, &quot;remove&quot;, str(wt[&quot;path&quot;])], capture_output=True)
+        del self.worktrees[name]
+        return f&quot;Removed worktree &#x27;{name}&#x27;&quot;</p><p>worktrees = WorktreeManager()
+</code></pre><h2>试一试</h2><pre><code class="language-bash">python agents/s18_worktree.py
+</code></pre><p>1. <code>创建 worktree "auth-refactor" 绑定 task 1</code>
+2. <code>在 worktree "auth-refactor" 中运行 git status</code>
+3. <code>移除 worktree 并完成绑定的任务</code></p><h2>本章小结</h2><ul>
+<li>Worktree 隔离:每个任务独立目录</li>
+<li>任务绑定:worktree 创建时自动推进任务状态</li>
+<li>事件流:每个生命周期步骤记录到 events.jsonl</li>
+<li>崩溃恢复:从 .tasks/ 和 .worktrees/index.json 重建现场</li>
+</ul>
+            <div class="nav-bottom"><a href="s17.html">← 上一章</a><a href="index.html">目录</a><a href="s19.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

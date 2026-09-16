@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第3章 权限系统 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 3 章:权限系统 -- 生产级的 Agent 安全策略</h1><table>
+<tr></tr>
+</table><p>> *"Agent 能做的事,必须是你允许它做的事"* -- 四态权限决定 + 审计日志。
+>
+> <strong>Harness 层</strong>: 权限 -- 给模型的每一步行动划定信任边界。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 理解为什么 Agent 需要权限系统(不只是"能跑就行")。
+2. 掌握四态权限模型:ALLOW / ASK / DENY / ASK_ONCE。
+3. 实现工具执行拦截器,在循环和 handler 之间插入权限检查。
+4. 实现审计日志,记录每一次工具调用的决策过程。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>上一章</td><td>理解 dispatch map 和工具执行流程</td></tr>
+<tr><td>Python</td><td>字典、枚举、函数</td></tr>
+</table><h3>术语速查</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>四态权限</strong></td><td>ALLOW(自动允许) / ASK(需要审批) / DENY(拒绝) / ASK_ONCE(首次审批)</td></tr>
+<tr><td><strong>审计日志</strong></td><td>记录每次工具调用的工具名、参数、权限决策、执行结果</td></tr>
+<tr><td><strong>fail-closed</strong></td><td>出错时选择拒绝而不是放行</td></tr>
+</table><p>---</p><h2>问题</h2><p>s02 的 Agent 能执行任何 bash 命令 -- <code>rm -rf /</code> 也可以。生产环境中,这是不可接受的。我们需要:
+<ul>
+<li>读文件:自动允许</li>
+<li>写文件:首次需要审批</li>
+<li>bash 命令:每次都需要审批</li>
+<li>危险操作:直接拒绝</li>
+</ul>
+---</p><h2>解决方案:四态权限模型</h2><pre><code class="language-">权限检查流程:</p><p>工具调用请求
+    │
+    v
+┌─────────────┐
+│ 查找权限规则 │
+└──────┬──────┘
+       │
+  ┌────┴────┐
+  │  匹配?  │
+  └────┬────┘
+       │
+  ┌────┴────────────────────────────┐
+  │                                 │
+  v                                 v
+ALLOW ──→ 直接执行            ASK_ONCE ──→ 已授权过? ──→ 是 ──→ 直接执行
+                                        │
+                                        否
+                                        │
+                                        v
+                                  ASK ──→ 用户审批 ──→ 通过 ──→ 执行 + 记录
+                                        │
+                                        拒绝
+                                        │
+                                        v
+                                   DENY ──→ 返回 &quot;Permission denied&quot;
+</code></pre><p>---</p><h2>工作原理</h2><h3>1. 权限策略</h3></p><pre><code class="language-python">from enum import Enum</p><p>class Permission(Enum):
+    ALLOW = &quot;allow&quot;
+    ASK = &quot;ask&quot;
+    DENY = &quot;deny&quot;
+    ASK_ONCE = &quot;ask_once&quot;</p><p>class PermissionPolicy:
+    def __init__(self):
+        self.rules = {}
+        self.granted = set()</p><p>    def check(self, tool_name: str, params: dict) -&gt; Permission:
+        if tool_name in self.rules:
+            perm = self.rules[tool_name]
+            if perm == Permission.ASK_ONCE and tool_name in self.granted:
+                return Permission.ALLOW
+            return perm
+        return Permission.ALLOW</p><p>    def grant_once(self, tool_name: str):
+        self.granted.add(tool_name)</p><p>policy = PermissionPolicy()
+policy.rules[&quot;bash&quot;] = Permission.ASK
+policy.rules[&quot;write_file&quot;] = Permission.ASK_ONCE
+policy.rules[&quot;read_file&quot;] = Permission.ALLOW
+policy.rules[&quot;edit_file&quot;] = Permission.ASK_ONCE
+</code></pre><h3>2. 工具执行拦截器</h3></p><pre><code class="language-python">def execute_tool(name: str, params: dict) -&gt; str:
+    perm = policy.check(name, params)</p><p>    if perm == Permission.DENY:
+        return &quot;Error: Permission denied&quot;</p><p>    if perm == Permission.ASK:
+        approved = input(f&quot;  Allow {name}({params})? [y/N]: &quot;).lower() == &quot;y&quot;
+        if not approved:
+            return &quot;Error: User denied&quot;</p><p>    if perm == Permission.ASK_ONCE and name not in policy.granted:
+        approved = input(f&quot;  Allow {name}({params})? (once) [y/N]: &quot;).lower() == &quot;y&quot;
+        if not approved:
+            return &quot;Error: User denied&quot;
+        policy.grant_once(name)</p><p>    handler = TOOL_HANDLERS.get(name)
+    if not handler:
+        return f&quot;Error: Unknown tool {name}&quot;</p><p>    try:
+        return handler(**params)
+    except Exception as e:
+        return f&quot;Error: {str(e)}&quot;
+</code></pre><h3>3. 审计日志</h3></p><pre><code class="language-python">import datetime</p><p>AUDIT_LOG = []</p><p>def audit(tool_name: str, params: dict, result: str, permission: Permission):
+    AUDIT_LOG.append({
+        &quot;timestamp&quot;: datetime.datetime.now().isoformat(),
+        &quot;tool&quot;: tool_name,
+        &quot;params&quot;: str(params)[:200],
+        &quot;permission&quot;: permission.value,
+        &quot;result_preview&quot;: str(result)[:200],
+    })
+</code></pre><p>---</p><h2>集成到 Agent Loop</h2><pre><code class="language-python">for block in response.content:
+    if block.type == &quot;tool_use&quot;:
+        perm = policy.check(block.name, block.input)
+        audit(block.name, block.input, &quot;&quot;, perm)</p><p>        output = execute_tool(block.name, block.input)
+        audit(block.name, block.input, output, perm)</p><p>        results.append({&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: block.id, &quot;content&quot;: output})
+</code></pre><p>权限检查插在循环和 handler 之间。循环本身不变。</p><p>---</p><h2>相对 s02 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s02)</td><td>之后 (s03)</td></tr>
+<tr><td>工具执行</td><td>直接调用 handler</td><td>经过权限检查再调用</td></tr>
+<tr><td>权限</td><td>无</td><td>四态权限模型</td></tr>
+<tr><td>审计</td><td>无</td><td>每次调用记录日志</td></tr>
+<tr><td>Agent loop</td><td>不变</td><td>不变(权限在循环外)</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s03_permission.py
+</code></pre><p>1. <code>读取 README.md</code>(应该自动执行,不需要审批)
+2. <code>创建一个 test.txt 文件</code>(首次写入需要审批)
+3. <code>再次写入 test.txt</code>(ASK_ONCE 第二次自动允许)
+4. <code>执行 rm -rf /</code>(应该被拒绝)</p><p>---</p><h2>本章小结</h2><ul>
+<li>四态权限:ALLOW / ASK / DENY / ASK_ONCE</li>
+<li>权限检查在循环和 handler 之间,循环不变</li>
+<li>ASK_ONCE 是实用折中:首次审批,后续自动</li>
+<li>审计日志记录决策过程,用于事后审计</li>
+<li>fail-closed:异常当作拒绝处理</li>
+</ul>
+            <div class="nav-bottom"><a href="s02.html">← 上一章</a><a href="index.html">目录</a><a href="s04.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

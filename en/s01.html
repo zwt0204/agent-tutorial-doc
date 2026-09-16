@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ch1 Agent Loop - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>Chapter 1: Agent Loop -- One Loop Is All You Need</h1><table>
+<tr></tr>
+</table><p>> *"One loop & Bash is all you need"* -- One tool + one loop = one Agent.
+>
+> <strong>Harness layer</strong>: Loop -- the first connection between model and real world.</p><p>---</p><h2>Chapter Preview</h2><h3>What you'll learn</h3></p><p>1. Explain in one sentence the difference between an Agent and "calling an LLM API once."
+2. Read the JSON fields exchanged in a single Agent conversation round.
+3. Write a working Agent Loop in under 30 lines.
+4. Know when the loop terminates and why you need a turn limit.</p><h3>Prerequisites</h3></p><table>
+<tr><td>Need</td><td>Level</td></tr>
+<tr><td>Python</td><td>Functions, dicts, lists</td></tr>
+<tr><td>CLI</td><td>Run <code>pip</code> and <code>python</code></td></tr>
+<tr><td>LLM API</td><td>Know that "send message, get text" works</td></tr>
+<tr><td>Previous chapter</td><td>None. This is Chapter 1</td></tr>
+</table><h3>Glossary</h3></p><table>
+<tr><td>Term</td><td>One-line explanation</td></tr>
+<tr><td><strong>Agent Loop</strong></td><td>"Ask model -> execute tool -> feed result back -> ask again" cycle</td></tr>
+<tr><td><strong>Harness</strong></td><td>Everything outside the loop: config, tool registry, approval, turn limits</td></tr>
+<tr><td><strong>Turn</strong></td><td>One request sent to the model (not one tool call)</td></tr>
+<tr><td><strong>tool_use</strong></td><td>A block in model reply indicating "I want to use a tool"</td></tr>
+<tr><td><strong>tool_result</strong></td><td>Tool execution output, appended as a user message</td></tr>
+<tr><td><strong>stop_reason</strong></td><td>Why the model stopped. <code>tool_use</code> means more work; anything else means done</td></tr>
+</table><p>---</p><h2>What role are you playing right now</h2><p>Without an Agent, you use LLMs like this: you type "list Python files in this directory", the model outputs <code>ls *.py</code>, but it doesn't run it. You switch to terminal, paste, run, copy output, switch back, paste output. Every round, you're the human loop between model and real world.</p><p><strong>An Agent Loop replaces you in that middle layer.</strong></p><p>---</p><h2>Two signals, one loop</h2><pre><code class="language-">Does model reply contain tool_use?
+├── Yes -&gt; execute tool, append result, ask model again
+└── No  -&gt; done. Model&#x27;s final text is the answer
+</code></pre><p>That's it. One exit condition controls everything.</p><p>---</p><h2>Real data flow</h2><p><strong>Round 1 -- User:</strong>
+<pre><code class="language-json">messages = [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;List files&quot;}]
+</code></pre><p><strong>Model reply -- wants a tool:</strong>
+<pre><code class="language-json">{&quot;content&quot;: [{&quot;type&quot;: &quot;tool_use&quot;, &quot;name&quot;: &quot;bash&quot;, &quot;input&quot;: {&quot;command&quot;: &quot;ls&quot;}, &quot;id&quot;: &quot;call_001&quot;}], &quot;stop_reason&quot;: &quot;tool_use&quot;}
+</code></pre><p><strong>Program appends result:</strong>
+<pre><code class="language-json">{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: [{&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: &quot;call_001&quot;, &quot;content&quot;: &quot;main.py\ntest.py\n&quot;}]}
+</code></pre><p><strong>Round 2 -- Model says:</strong> "There are main.py and test.py." <code>stop_reason</code> is no longer <code>tool_use</code>. Loop ends.</p><p>---</p><h2>Complete function</h2><pre><code class="language-python">import os, json
+from openai import OpenAI</p><p>client = OpenAI()
+MODEL = os.getenv(&quot;OPENAI_MODEL&quot;, &quot;gpt-4o&quot;)</p><p>TOOLS = [{&quot;type&quot;: &quot;function&quot;, &quot;function&quot;: {
+    &quot;name&quot;: &quot;bash&quot;, &quot;description&quot;: &quot;Run a bash command&quot;,
+    &quot;parameters&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;properties&quot;: {
+        &quot;command&quot;: {&quot;type&quot;: &quot;string&quot;}}, &quot;required&quot;: [&quot;command&quot;]}
+}}]</p><p>def run_bash(command: str) -&gt; str:
+    import subprocess
+    r = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+    return r.stdout + r.stderr</p><p>def agent_loop(query: str):
+    client = get_client()
+    MODEL = get_model()
+    messages = [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: query}]</p><p>    for turn in range(20):
+        resp = client.chat.completions.create(
+            model=MODEL, messages=messages, tools=TOOLS, max_tokens=8000)
+        msg = resp.choices[0].message
+        messages.append(msg.model_dump())</p><p>        if not msg.tool_calls:
+            print(msg.content)
+            return</p><p>        for tc in msg.tool_calls:
+            args = json.loads(tc.function.arguments)
+            output = run_bash(args[&quot;command&quot;])
+            messages.append({&quot;role&quot;: &quot;tool&quot;, &quot;tool_call_id&quot;: tc.id, &quot;content&quot;: output})</p><p>if __name__ == &quot;__main__&quot;:
+    agent_loop(input(&quot;You: &quot;))
+</code></pre><p>Under 30 lines. That's the entire Agent. Chapters 2-20 only add mechanisms around this loop -- <strong>the loop itself never changes</strong>.</p><p>---</p><h2>Why you need a turn limit</h2><p>The model might loop infinitely (re-reading the same file). <code>for turn in range(20)</code> ensures the program always exits. Production systems typically use 50-100.</p><p>---</p><h2>Try it</h2><pre><code class="language-bash">python3 agents/s01_agent_loop.py
+</code></pre><p>1. <code>list files in the current directory</code>
+2. <code>create a hello.py that prints Hello, World!</code>
+3. <code>what time is it?</code>
+4. <code>how many Python files are here?</code></p><p>---</p><h2>Summary</h2><ul>
+<li>Agent = Model + Harness (loop + tools + safety boundaries)</li>
+<li>Agent Loop is "ask model -> execute tool -> feed back"</li>
+<li><code>stop_reason != "tool_use"</code> is the only exit condition</li>
+<li>Turn limit prevents infinite loops</li>
+<li>The loop doesn't change across chapters; later chapters only add外围 capabilities</li>
+</ul>
+            <div class="nav-bottom"><a href="index.html">目录</a><a href="s02.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第12章 任务引擎 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 12 章:任务引擎 -- 生产级的 Task DAG</h1><table>
+<tr></tr>
+</table><p>> *"大目标要拆成小任务,排好序,记在磁盘上"* -- 带依赖关系的任务图。
+>
+> <strong>Harness 层</strong>: 任务持久化 -- 比任何一次对话都长命的目标。</p><p>---</p><h2>问题</h2><p>TODO 太简单,没有依赖关系。真实项目需要:任务 B 依赖任务 A,任务 C 和 D 可以并行,任务 E 要等 C 和 D 都完成。</p><h2>解决方案</h2><pre><code class="language-">.tasks/
+  task_1.json  {&quot;id&quot;:1, &quot;status&quot;:&quot;completed&quot;}
+  task_2.json  {&quot;id&quot;:2, &quot;blockedBy&quot;:[1], &quot;status&quot;:&quot;pending&quot;}
+  task_3.json  {&quot;id&quot;:3, &quot;blockedBy&quot;:[1], &quot;status&quot;:&quot;pending&quot;}
+  task_4.json  {&quot;id&quot;:4, &quot;blockedBy&quot;:[2,3], &quot;status&quot;:&quot;pending&quot;}</p><p>任务图 (DAG):
+                 +----------+
+<table>
+<tr><td>task 2</td></tr>
+<tr><td></td><td>pending</td><td></td></tr>
+</table>
++----------+     +----------+    +--&gt; +----------+
+<table>
+<tr><td>task 1</td><td></td><td>task 4</td></tr>
+<tr><td>pending</td></tr>
+</table>
+                 +----------+
+</code></pre><h2>工作原理</h2><pre><code class="language-python">from pathlib import Path
+import json</p><p>TASKS_DIR = Path(&quot;./tasks&quot;)</p><p>class TaskEngine:
+    def __init__(self):
+        TASKS_DIR.mkdir(exist_ok=True)</p><p>    def create(self, subject: str, blocked_by: list = None) -&gt; dict:
+        task_id = self._next_id()
+        task = {&quot;id&quot;: task_id, &quot;subject&quot;: subject, &quot;status&quot;: &quot;pending&quot;,
+                &quot;blockedBy&quot;: blocked_by or [], &quot;owner&quot;: &quot;&quot;}
+        self._save(task)
+        return task</p><p>    def update(self, task_id: int, **kwargs):
+        task = self._load(task_id)
+        task.update(kwargs)
+        if task.get(&quot;status&quot;) == &quot;completed&quot;:
+            self._clear_dependency(task_id)
+        self._save(task)</p><p>    def _clear_dependency(self, completed_id: int):
+        for f in TASKS_DIR.glob(&quot;task_*.json&quot;):
+            task = json.loads(f.read_text(encoding=&quot;utf-8&quot;))
+            if completed_id in task.get(&quot;blockedBy&quot;, []):
+                task[&quot;blockedBy&quot;].remove(completed_id)
+                self._save(task)</p><p>    def get_ready_tasks(self) -&gt; list:
+        ready = []
+        for f in sorted(TASKS_DIR.glob(&quot;task_*.json&quot;)):
+            task = json.loads(f.read_text(encoding=&quot;utf-8&quot;))
+            if task[&quot;status&quot;] == &quot;pending&quot; and not task[&quot;blockedBy&quot;]:
+                ready.append(task)
+        return ready</p><p>    def render_dag(self) -&gt; str:
+        lines = [&quot;Task DAG:&quot;]
+        for f in sorted(TASKS_DIR.glob(&quot;task_*.json&quot;)):
+            task = json.loads(f.read_text(encoding=&quot;utf-8&quot;))
+            mark = {&quot;pending&quot;: &quot;○&quot;, &quot;in_progress&quot;: &quot;◐&quot;, &quot;completed&quot;: &quot;●&quot;}.get(task[&quot;status&quot;], &quot;?&quot;)
+            deps = f&quot; &lt;- {task[&#x27;blockedBy&#x27;]}&quot; if task[&quot;blockedBy&quot;] else &quot;&quot;
+            lines.append(f&quot;  {mark} Task {task[&#x27;id&#x27;]}: {task[&#x27;subject&#x27;]}{deps}&quot;)
+        return &quot;\n&quot;.join(lines)</p><p>tasks = TaskEngine()
+</code></pre><h2>相对 s11 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s11)</td><td>之后 (s12)</td></tr>
+<tr><td>任务管理</td><td>无</td><td>带依赖关系的 DAG</td></tr>
+<tr><td>持久化</td><td>无</td><td>JSON 文件</td></tr>
+<tr><td>依赖解除</td><td>无</td><td>完成时自动解锁后续</td></tr>
+</table><h2>试一试</h2><pre><code class="language-bash">python agents/s12_task_engine.py
+</code></pre><p>1. <code>创建 3 个任务:"Setup project", "Write code", "Write tests",按顺序依赖</code>
+2. <code>完成 task 1,然后查看 task 2 是否解锁</code>
+3. <code>创建一个并行任务图:parse -> transform -> emit -> test</code></p><h2>本章小结</h2><ul>
+<li>任务 DAG:带依赖关系的任务图</li>
+<li>自动依赖解除:完成任务时自动解锁后续</li>
+<li>持久化到磁盘:压缩和重启后存活</li>
+</ul>
+            <div class="nav-bottom"><a href="s11.html">← 上一章</a><a href="index.html">目录</a><a href="s13.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

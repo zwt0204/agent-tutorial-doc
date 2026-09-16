@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第20章 完整 Harness - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 20 章:完整 Harness -- 统一运行时</h1><p><code>s01 > s02 > ... > s19 > [ s20 ]</code></p><p>> *"验证前 19 章能力能否在同一个 AgentRunner 中协同工作"*
+>
+> <strong>Harness 层</strong>: 总装 -- 所有能力的统一边界。</p><p>---</p><h2>本章导读</h2><p>这是最后一章。不引入新机制,而是把前 19 章的全部能力接入同一个 <code>AgentHarness</code> 类,验证它们能否协同工作。</p><h3>读完这一章,你能做到什么</h3></p><p>1. 理解完整 Harness 的组件清单和组装顺序。
+2. 看到所有机制(循环、工具、权限、Hook、TODO、子Agent、Skill、压缩、记忆、动态提示、韧性、任务、异步、Cron、Inbox、协议、自治、Worktree、MCP)如何在同一个循环中协同。
+3. 掌握 Harness 工程的核心原则:模型做决策,Harness 做执行。</p><p>---</p><h2>Harness 组件清单</h2><pre><code class="language-python">class AgentHarness:
+    def __init__(self):
+        self.hooks = HookManager()          # Ch04: 生命周期钩子
+        self.policy = PermissionPolicy()    # Ch03: 权限系统
+        self.skills = SkillManager()        # Ch07: 技能系统
+        self.memory = MemoryManager()       # Ch09: 记忆系统
+        self.tasks = TaskEngine()           # Ch12: 任务引擎
+        self.bus = MessageBus()             # Ch15: 消息总线
+        self.worktrees = WorktreeManager()  # Ch18: Worktree 隔离
+        self.cron = CronScheduler()         # Ch14: Cron 调度
+        self.mcp = MCPManager()             # Ch19: MCP 集成
+        self.dynamic_prompt = DynamicPrompt() # Ch10: 动态上下文
+        self._register_tools()              # Ch02: 工具注册
+</code></pre><p>---</p><h2>主循环</h2><pre><code class="language-python">def run(self, query: str):
+    messages = [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: query}]</p><p>    for turn in range(MAX_TURNS):                         # Ch01: 轮次上限
+        system = self.dynamic_prompt.build({&quot;messages&quot;: messages})  # Ch10</p><p>        hook_data = self.hooks.fire(&quot;UserPromptSubmit&quot;, {&quot;prompt&quot;: query})
+        if hook_data is None:
+            return &quot;Blocked by hook&quot;</p><p>        micro_compact(messages)                           # Ch08: 压缩
+        if estimate_tokens(messages) &gt; THRESHOLD:
+            messages[:] = auto_compact(messages)</p><p>        response = resilient_api_call(                    # Ch11: 韧性
+            messages=messages, system=system,
+            tools=self._get_tool_definitions(), max_tokens=8000,
+        )
+        messages.append({&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: response.content})</p><p>        if response.stop_reason != &quot;tool_use&quot;:
+            self.hooks.fire(&quot;Stop&quot;, {&quot;messages&quot;: messages})
+            return</p><p>        results = []
+        for block in response.content:
+            if block.type == &quot;tool_use&quot;:
+                perm = self.policy.check(block.name, block.input)  # Ch03
+                if perm == Permission.DENY:
+                    results.append({&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: block.id, &quot;content&quot;: &quot;Permission denied&quot;})
+                    continue</p><p>                self.hooks.fire(&quot;PreToolUse&quot;, {&quot;tool_name&quot;: block.name})
+                try:
+                    output = self._execute_tool(block.name, block.input)
+                except Exception as e:
+                    output = f&quot;Error: {str(e)}&quot;
+                self.hooks.fire(&quot;PostToolUse&quot;, {&quot;tool_name&quot;: block.name, &quot;result&quot;: output})
+                results.append({&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: block.id, &quot;content&quot;: str(output)})</p><p>        messages.append({&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: results})
+</code></pre><p>---</p><h2>设计原则</h2><p>1. <strong>循环不变</strong>:所有扩展都在循环外围。循环本身只有"调模型 → 执行工具 → 追加结果"三步。
+2. <strong>逐章累加</strong>:每章只增加一个主要能力,前章行为继续保留。
+3. <strong>工具即接口</strong>:Agent 的所有能力都通过工具暴露。加工具 = 加能力,不需要改循环。
+4. <strong>安全边界前置</strong>:权限检查在工具执行前,Hook 在权限后。fail-closed。
+5. <strong>磁盘即真理</strong>:任务、记忆、Worktree 都持久化到磁盘。会话是易失的,磁盘是持久的。</p><p>---</p><h2>完整工具清单(20 章累计)</h2><table>
+<tr><td>来源</td><td>工具</td><td>说明</td></tr>
+<tr><td>Ch02</td><td>bash, read_file, write_file, edit_file</td><td>基础文件操作</td></tr>
+<tr><td>Ch05</td><td>todo_add, todo_done</td><td>会话计划</td></tr>
+<tr><td>Ch06</td><td>task (spawn subagent)</td><td>子 Agent 委派</td></tr>
+<tr><td>Ch07</td><td>list_skills, load_skill</td><td>技能加载</td></tr>
+<tr><td>Ch09</td><td>remember, recall</td><td>记忆存取</td></tr>
+<tr><td>Ch12</td><td>task_create, task_update, task_list</td><td>任务 DAG</td></tr>
+<tr><td>Ch13</td><td>run_async, check_async</td><td>异步执行</td></tr>
+<tr><td>Ch15</td><td>send_message, read_inbox, broadcast</td><td>Agent 通信</td></tr>
+<tr><td>Ch17</td><td>idle, claim_task</td><td>自治认领</td></tr>
+<tr><td>Ch18</td><td>worktree_create, worktree_remove</td><td>目录隔离</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">python agents/s20_harness.py
+</code></pre><p>1. <code>创建一个完整的项目任务图:设计 -> 实现 -> 测试 -> 部署</code>
+2. <code>spawn 两个队友,让他们自动认领并行任务</code>
+3. <code>观察完整 Harness 的权限检查、日志记录和压缩行为</code></p><p>---</p><h2>结语:造好 Harness,Agent 会完成剩下的</h2><p>每一个部署在真实领域的好 Harness,都是 Agent 能够感知、推理、行动的又一个阵地。</p><p>你不是在编写智能。你是在构建智能栖居的世界。这个世界的质量 -- Agent 能看得多清楚、行动得多精准、可用知识有多丰富 -- 直接决定了智能能多有效地表达自己。</p><p><strong>Bash is all you need. Real agents are all the universe needs.</strong>
+</p>
+            <div class="nav-bottom"><a href="s19.html">← 上一章</a><a href="index.html">目录</a></div>
+        </div>
+    </div>
+</body>
+</html>

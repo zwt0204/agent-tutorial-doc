@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ch2 Tools & Files - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>Chapter 2: Tools & Files -- Adding a Tool Is One Line</h1><table>
+<tr></tr>
+</table><p>> *"Add a tool, add one handler"* -- The loop doesn't change; register into the dispatch map.
+>
+> <strong>Harness layer</strong>: Tool dispatch -- expanding what the model can reach.</p><p>---</p><h2>Chapter Preview</h2><h3>What you'll learn</h3></p><p>1. Why <code>bash</code> alone isn't enough.
+2. The dispatch map pattern: add tool = add handler + add schema, loop unchanged.
+3. Path sandboxing to prevent directory escape.
+4. Expand from 1 tool to 4: bash, read_file, write_file, edit_file.</p><h3>Prerequisites</h3></p><table>
+<tr><td>Need</td><td>Level</td></tr>
+<tr><td>Previous chapter</td><td>Agent Loop understanding</td></tr>
+<tr><td>Python</td><td>Dicts, functions, pathlib</td></tr>
+</table><p>---</p><h2>Problem</h2><p>With only <code>bash</code>, all operations go through shell. <code>cat</code> truncates unpredictably, <code>sed</code> crashes on special characters, every bash call is an unconstrained security surface.</p><p><strong>Key insight: Adding tools doesn't require changing the loop.</strong></p><p>---</p><h2>Solution</h2><pre><code class="language-">User -&gt; LLM -&gt; Tool Dispatch {
+    bash: run_bash
+    read: run_read
+    write: run_write
+    edit: run_edit
+}
+</code></pre><p>The dispatch map is a dict: <code>{tool_name: handler_function}</code>. One lookup replaces any if/elif chain.</p><p>---</p><h2>Implementation</h2><h3>Path sandbox</h3></p><pre><code class="language-python">from pathlib import Path
+WORKDIR = Path.cwd()</p><p>def safe_path(p: str) -&gt; Path:
+    path = (WORKDIR / p).resolve()
+    if not path.is_relative_to(WORKDIR):
+        raise ValueError(f&quot;Path escapes workspace: {p}&quot;)
+    return path
+</code></pre><h3>Four tool handlers</h3></p><pre><code class="language-python">def run_read(path: str, limit: int = None) -&gt; str:
+    text = safe_path(path).read_text(encoding=&quot;utf-8&quot;)
+    lines = text.splitlines()
+    if limit: lines = lines[:limit]
+    return &quot;\n&quot;.join(lines)[:50000]</p><p>def run_write(path: str, content: str) -&gt; str:
+    p = safe_path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding=&quot;utf-8&quot;)
+    return f&quot;Written {len(content)} bytes to {path}&quot;</p><p>def run_edit(path: str, old_text: str, new_text: str) -&gt; str:
+    p = safe_path(path)
+    text = p.read_text(encoding=&quot;utf-8&quot;)
+    if old_text not in text:
+        return f&quot;Error: old_text not found in {path}&quot;
+    p.write_text(text.replace(old_text, new_text, 1), encoding=&quot;utf-8&quot;)
+    return f&quot;Edited {path}&quot;
+</code></pre><h3>Dispatch map</h3></p><pre><code class="language-python">HANDLERS = {
+    &quot;bash&quot;:       lambda **kw: run_bash(kw[&quot;command&quot;]),
+    &quot;read_file&quot;:  lambda **kw: run_read(kw[&quot;path&quot;], kw.get(&quot;limit&quot;)),
+    &quot;write_file&quot;: lambda **kw: run_write(kw[&quot;path&quot;], kw[&quot;content&quot;]),
+    &quot;edit_file&quot;:  lambda **kw: run_edit(kw[&quot;path&quot;], kw[&quot;old_text&quot;], kw[&quot;new_text&quot;]),
+}
+</code></pre><h3>Loop uses dispatch</h3></p><pre><code class="language-python">for tc in msg.tool_calls:
+    handler = HANDLERS.get(tc.function.name)
+    output = handler(**args) if handler else f&quot;Unknown: {tc.function.name}&quot;
+    messages.append({&quot;role&quot;: &quot;tool&quot;, &quot;tool_call_id&quot;: tc.id, &quot;content&quot;: output})
+</code></pre><p><strong>Adding tools = adding handler + adding schema. Loop unchanged.</strong></p><p>---</p><h2>Changes from s01</h2><table>
+<tr><td>Component</td><td>Before (s01)</td><td>After (s02)</td></tr>
+<tr><td>Tools</td><td>1 (bash only)</td><td>4 (bash, read, write, edit)</td></tr>
+<tr><td>Dispatch</td><td>Hardcoded bash call</td><td><code>HANDLERS</code> dict</td></tr>
+<tr><td>Path safety</td><td>None</td><td><code>safe_path()</code> sandbox</td></tr>
+<tr><td>Agent loop</td><td>Unchanged</td><td>Unchanged</td></tr>
+</table><p>---</p><h2>Try it</h2><pre><code class="language-bash">python3 agents/s02_tool_use.py
+</code></pre><p>1. <code>Read the first 10 lines of requirements.txt</code>
+2. <code>Create greet.py with a greet(name) function</code>
+3. <code>Edit greet.py to add a docstring</code>
+4. <code>Read greet.py to verify the edit</code></p><p>---</p><h2>Summary</h2><ul>
+<li>Dispatch map pattern makes adding tools trivial</li>
+<li><code>safe_path()</code> provides path sandboxing at the tool layer</li>
+<li>Loop body identical to s01 -- all expansion is outside the loop</li>
+</ul>
+            <div class="nav-bottom"><a href="s01.html">← 上一章</a><a href="index.html">目录</a><a href="s03.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

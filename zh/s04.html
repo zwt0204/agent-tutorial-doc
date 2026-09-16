@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第4章 Hook 解耦 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 4 章:Hook 系统 -- 用生命周期钩子解耦 Agent 行为</h1><table>
+<tr></tr>
+</table><p>> *"在 Agent 的四个关键时刻,插入你自己的逻辑"* -- 四个生命周期点,零侵入扩展。
+>
+> <strong>Harness 层</strong>: 生命周期 -- 让外部代码在特定时刻介入。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 理解为什么权限检查还不够 -- 还需要"在特定时刻做特定事"的能力。
+2. 掌握四个生命周期钩子:UserPromptSubmit、PreToolUse、PostToolUse、Stop。
+3. 实现 HookManager,支持注册、触发、链式调用。
+4. 用 Hook 实现日志记录、状态保存、输入验证等横切关注点。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>上一章</td><td>理解权限拦截器的位置</td></tr>
+<tr><td>Python</td><td>函数、列表、字典</td></tr>
+</table><h3>术语速查</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>Hook</strong></td><td>在特定生命周期点插入的回调函数</td></tr>
+<tr><td><strong>生命周期</strong></td><td>Agent 运行过程中的关键时刻:提交 prompt、执行工具前后、停止时</td></tr>
+<tr><td><strong>横切关注点</strong></td><td>贯穿多个功能的通用逻辑:日志、审计、状态保存</td></tr>
+</table><p>---</p><h2>问题</h2><p>权限检查是静态的 -- 规则写死在 policy 里。但真实场景需要动态行为:</p><ul>
+<li>用户提交 prompt 前:验证格式、过滤敏感词</li>
+<li>工具执行前:记录日志、检查副作用</li>
+<li>工具执行后:更新统计、触发通知</li>
+<li>Agent 停止前:保存状态、生成报告</li>
+</ul>
+这些逻辑不能硬编码在循环里。需要一种<strong>零侵入</strong>的扩展机制。</p><p>---</p><h2>解决方案:四个生命周期钩子</h2><pre><code class="language-">User prompt
+    │
+    v
+[UserPromptSubmit]  ← 用户提交 prompt 前
+    │
+    v
+┌───────────────────────────────────────┐
+│  while True:                          │
+│    LLM response                       │
+│        │                              │
+│        v                              │
+│    [PreToolUse]  ← 工具执行前         │
+│        │                              │
+│        v                              │
+│    execute tool                       │
+│        │                              │
+│        v                              │
+│    [PostToolUse] ← 工具执行后         │
+│        │                              │
+│        v                              │
+│    append result                      │
+└───────────────────────────────────────┘
+    │
+    v
+[Stop]  ← Agent 停止前
+</code></pre><p>---</p><h2>工作原理</h2><h3>1. HookManager</h3></p><pre><code class="language-python">from typing import Callable</p><p>class HookManager:
+    def __init__(self):
+        self.hooks = {
+            &quot;UserPromptSubmit&quot;: [],
+            &quot;PreToolUse&quot;: [],
+            &quot;PostToolUse&quot;: [],
+            &quot;Stop&quot;: [],
+        }</p><p>    def register(self, event: str, fn: Callable):
+        if event in self.hooks:
+            self.hooks[event].append(fn)</p><p>    def fire(self, event: str, data: dict) -&gt; dict:
+        for fn in self.hooks[event]:
+            result = fn(data)
+            if result is False:
+                return None
+            if isinstance(result, dict):
+                data.update(result)
+        return data</p><p>hooks = HookManager()
+</code></pre><h3>2. 示例钩子</h3></p><pre><code class="language-python">def validate_prompt(data: dict):
+    if len(data.get(&quot;prompt&quot;, &quot;&quot;)) &gt; 10000:
+        print(&quot;Warning: Prompt too long, truncating...&quot;)
+        data[&quot;prompt&quot;] = data[&quot;prompt&quot;][:10000]
+    return data</p><p>def log_tool_use(data: dict):
+    print(f&quot;[LOG] {data[&#x27;tool_name&#x27;]} called with {data[&#x27;params&#x27;]}&quot;)
+    return data</p><p>def save_state(data: dict):
+    import json
+    with open(&quot;state.json&quot;, &quot;w&quot;) as f:
+        json.dump(data.get(&quot;messages&quot;, []), f)
+    return data</p><p>hooks.register(&quot;UserPromptSubmit&quot;, validate_prompt)
+hooks.register(&quot;PreToolUse&quot;, log_tool_use)
+hooks.register(&quot;Stop&quot;, save_state)
+</code></pre><h3>3. 集成到 Agent Loop</h3></p><pre><code class="language-python">def agent_loop(query: str):
+    messages = [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: query}]</p><p>    while True:
+        hook_data = hooks.fire(&quot;UserPromptSubmit&quot;, {&quot;prompt&quot;: query, &quot;messages&quot;: messages})
+        if hook_data is None:
+            return &quot;Blocked by hook&quot;</p><p>        response = client.messages.create(
+            model=MODEL, system=SYSTEM, messages=messages,
+            tools=TOOLS, max_tokens=8000,
+        )
+        messages.append({&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: response.content})</p><p>        if response.stop_reason != &quot;tool_use&quot;:
+            hooks.fire(&quot;Stop&quot;, {&quot;messages&quot;: messages})
+            return</p><p>        results = []
+        for block in response.content:
+            if block.type == &quot;tool_use&quot;:
+                hooks.fire(&quot;PreToolUse&quot;, {&quot;tool_name&quot;: block.name, &quot;params&quot;: block.input})
+                output = execute_tool(block.name, block.input)
+                hooks.fire(&quot;PostToolUse&quot;, {&quot;tool_name&quot;: block.name, &quot;params&quot;: block.input, &quot;result&quot;: output})
+                results.append({&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: block.id, &quot;content&quot;: output})
+        messages.append({&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: results})
+</code></pre><p>钩子注册在循环外面,触发在循环里面。循环结构不变,但行为可无限扩展。</p><p>---</p><h2>相对 s03 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s03)</td><td>之后 (s04)</td></tr>
+<tr><td>横切逻辑</td><td>硬编码在循环中</td><td>注册为 Hook,按需触发</td></tr>
+<tr><td>扩展方式</td><td>改循环代码</td><td>注册回调函数</td></tr>
+<tr><td>生命周期点</td><td>无</td><td>4 个(Submit/Pre/Post/Stop)</td></tr>
+<tr><td>Agent loop</td><td>不变</td><td>不变(钩子在循环内触发)</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s04_hooks.py
+</code></pre><p>1. <code>列出当前目录</code>(观察 PreToolUse 日志输出)
+2. <code>读取 README.md</code>(观察 PostToolUse 日志输出)
+3. 按 Ctrl+C 停止(观察 Stop 钩子保存状态)
+4. 检查 <code>state.json</code> 文件是否生成</p><p>---</p><h2>本章小结</h2><ul>
+<li>四个生命周期钩子:UserPromptSubmit / PreToolUse / PostToolUse / Stop</li>
+<li>Hook 让横切关注点(日志、审计、状态保存)与核心循环解耦</li>
+<li>注册在循环外,触发在循环内</li>
+<li>返回 False 可以阻止后续执行(用于安全拦截)</li>
+</ul>
+            <div class="nav-bottom"><a href="s03.html">← 上一章</a><a href="index.html">目录</a><a href="s05.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

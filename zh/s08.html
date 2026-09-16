@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第8章 上下文压缩 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 8 章:上下文压缩 -- 干净的记忆,无限的会话</h1><table>
+<tr></tr>
+</table><p>> *"上下文总会满,要有办法腾地方"* -- 三层压缩策略,换来无限会话。
+>
+> <strong>Harness 层</strong>: 压缩 -- 干净的记忆,无限的会话。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 理解为什么上下文窗口是有限的,以及不压缩的后果。
+2. 掌握三层压缩策略:micro_compact / auto_compact / manual compact。
+3. 实现 micro_compact:静默替换旧 tool_result。
+4. 实现 auto_compact:token 超阈值时自动摘要。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>上一章</td><td>理解 Skill 加载和工具系统</td></tr>
+<tr><td>Python</td><td>列表、字典、JSON</td></tr>
+</table><h3>术语速查</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>micro_compact</strong></td><td>每次 LLM 调用前,将旧 tool_result 替换为占位符</td></tr>
+<tr><td><strong>auto_compact</strong></td><td>token 超过阈值时,保存完整对话到磁盘,用 LLM 摘要替换</td></tr>
+<tr><td><strong>transcript</strong></td><td>完整对话历史,保存在 <code>.transcripts/</code> 目录用于恢复</td></tr>
+</table><p>---</p><h2>问题</h2><p>上下文窗口是有限的。读一个 1000 行的文件就吃掉 ~4000 token;读 30 个文件、跑 20 条命令,轻松突破 100k token。不压缩,Agent 根本没法在大项目里干活。</p><p>---</p><h2>解决方案:三层压缩</h2><pre><code class="language-">Every turn:
++------------------+
+<table>
+<tr><td>Tool call result</td></tr>
+</table>
++------------------+
+<table>
+<tr></tr>
+</table>
+        v
+[Layer 1: micro_compact]        (silent, every turn)
+  Replace tool_result &gt; 3 turns old
+  with &quot;[Previous: used {tool_name}]&quot;
+<table>
+<tr></tr>
+</table>
+        v
+[Check: tokens &gt; 50000?]
+<table>
+<tr><td></td></tr>
+</table>
+   no              yes
+<table>
+<tr><td></td></tr>
+</table>
+   v               v
+continue    [Layer 2: auto_compact]
+              Save transcript to .transcripts/
+              LLM summarizes conversation.
+              Replace all messages with [summary].
+<table>
+<tr></tr>
+</table>
+                    v
+            [Layer 3: compact tool]
+              Model calls compact explicitly.
+              Same summarization as auto_compact.
+</code></pre><p>---</p><h2>工作原理</h2><h3>1. micro_compact -- 静默替换</h3></p><pre><code class="language-python">KEEP_RECENT = 3</p><p>def micro_compact(messages: list) -&gt; list:
+    tool_results = []
+    for i, msg in enumerate(messages):
+        if msg[&quot;role&quot;] == &quot;user&quot; and isinstance(msg.get(&quot;content&quot;), list):
+            for j, part in enumerate(msg[&quot;content&quot;]):
+                if isinstance(part, dict) and part.get(&quot;type&quot;) == &quot;tool_result&quot;:
+                    tool_results.append((i, j, part))</p><p>    if len(tool_results) &lt;= KEEP_RECENT:
+        return messages</p><p>    for _, _, part in tool_results[:-KEEP_RECENT]:
+        if len(part.get(&quot;content&quot;, &quot;&quot;)) &gt; 100:
+            part[&quot;content&quot;] = f&quot;[Previous result truncated]&quot;</p><p>    return messages
+</code></pre><h3>2. auto_compact -- LLM 摘要</h3></p><pre><code class="language-python">def auto_compact(messages: list) -&gt; list:
+    transcript_dir = Path(&quot;.transcripts&quot;)
+    transcript_dir.mkdir(exist_ok=True)</p><p>    # 保存完整历史
+    with open(transcript_dir / f&quot;transcript_{int(time.time())}.jsonl&quot;, &quot;w&quot;) as f:
+        for msg in messages:
+            f.write(json.dumps(msg, default=str) + &quot;\n&quot;)</p><p>    # LLM 摘要
+    response = client.messages.create(
+        model=MODEL,
+        messages=[{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;:
+            &quot;Summarize this conversation for continuity. Keep key decisions and context.\n\n&quot;
+            + json.dumps(messages, default=str)[:80000]}],
+        max_tokens=2000,
+    )
+    return [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: f&quot;[Compressed]\n\n{response.content[0].text}&quot;}]
+</code></pre><h3>3. 集成到循环</h3></p><pre><code class="language-python">THRESHOLD = 50000</p><p>def agent_loop(query: str):
+    messages = [{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: query}]
+    while True:
+        micro_compact(messages)
+        if estimate_tokens(messages) &gt; THRESHOLD:
+            messages[:] = auto_compact(messages)</p><p>        response = client.messages.create(...)
+        # ... 正常循环 ...
+</code></pre><p>---</p><h2>相对 s07 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s07)</td><td>之后 (s08)</td></tr>
+<tr><td>上下文管理</td><td>无</td><td>三层压缩</td></tr>
+<tr><td>会话长度</td><td>受窗口限制</td><td>理论上无限</td></tr>
+<tr><td>历史恢复</td><td>无</td><td>transcript 保存到磁盘</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s08_context_compact.py
+</code></pre><p>1. <code>逐个读取 agents/ 目录下的所有 Python 文件</code>(观察 micro_compact 替换旧结果)
+2. <code>继续读取文件直到压缩自动触发</code>
+3. <code>使用 compact 工具手动压缩对话</code></p><p>---</p><h2>本章小结</h2><ul>
+<li>micro_compact:静默替换旧结果,零感知</li>
+<li>auto_compact:token 超阈值时 LLM 摘要</li>
+<li>完整历史通过 transcript 保存在磁盘</li>
+<li>信息没有真正丢失,只是移出了活跃上下文</li>
+</ul>
+            <div class="nav-bottom"><a href="s07.html">← 上一章</a><a href="index.html">目录</a><a href="s09.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

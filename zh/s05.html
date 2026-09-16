@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第5章 会话计划 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 5 章:会话计划 -- 用 TODO 防止长任务漂移</h1><table>
+<tr></tr>
+</table><p>> *"长任务需要锚点,否则 Agent 会忘记自己在做什么"*
+>
+> <strong>Harness 层</strong>: 规划 -- 让目标持久化在上下文中。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 理解为什么长对话中 Agent 会"忘记"最初目标。
+2. 实现 TodoManager,支持添加、更新、渲染任务列表。
+3. 将 TODO 注入系统提示,让 Agent 始终"看到"自己的计划。
+4. 用 TODO 状态校验防止计划陈旧。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>上一章</td><td>理解 Hook 系统</td></tr>
+<tr><td>Python</td><td>列表、字典、字符串格式化</td></tr>
+</table><h3>术语速查</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>TODO</strong></td><td>持久化的任务列表,注入系统提示让 Agent 始终可见</td></tr>
+<tr><td><strong>任务漂移</strong></td><td>长对话中 Agent 逐渐偏离最初目标的现象</td></tr>
+<tr><td><strong>状态校验</strong></td><td>检查 TODO 是否与实际工作匹配,防止计划陈旧</td></tr>
+</table><p>---</p><h2>问题</h2><p>长对话中,Messages 数组越来越长。Agent 最初说"我要重构认证模块",但读了 20 个文件、跑了 10 条命令后,它可能已经忘了自己在做什么,开始做不相关的事。</p><p>---</p><h2>解决方案</h2><p>把计划以 TODO 格式注入系统提示:</p><pre><code class="language-">当前计划:
+<ul>
+<li>[x] 读取现有认证代码</li>
+<li>[ ] 重构为 JWT 模式</li>
+<li>[ ] 更新测试</li>
+<li>[ ] 更新文档</li>
+</ul></code></pre><p>Agent 每次调用模型时都能"看到"自己的计划,不会偏离。</p><p>---</p><h2>工作原理</h2><h3>1. TodoManager</h3></p><pre><code class="language-python">class TodoManager:
+    def __init__(self):
+        self.items = []</p><p>    def add(self, text: str, status: str = &quot;pending&quot;):
+        self.items.append({&quot;text&quot;: text, &quot;status&quot;: status})</p><p>    def update(self, index: int, status: str):
+        if 0 &lt;= index &lt; len(self.items):
+            self.items[index][&quot;status&quot;] = status</p><p>    def render(self) -&gt; str:
+        lines = [&quot;当前计划:&quot;]
+        for i, item in enumerate(self.items):
+            mark = &quot;x&quot; if item[&quot;status&quot;] == &quot;done&quot; else &quot; &quot;
+            lines.append(f&quot;- [{mark}] {item[&#x27;text&#x27;]}&quot;)
+        return &quot;\n&quot;.join(lines)</p><p>TODO = TodoManager()
+</code></pre><h3>2. 注入系统提示</h3></p><pre><code class="language-python">def get_system_prompt():
+    base = &quot;You are a helpful coding assistant.&quot;
+    todo_state = TODO.render()
+    if todo_state.strip() != &quot;当前计划:&quot;:
+        return f&quot;{base}\n\n{todo_state}&quot;
+    return base
+</code></pre><h3>3. Agent 更新 TODO 的工具</h3></p><pre><code class="language-python">@tool(&quot;todo_add&quot;)
+def todo_add(text: str) -&gt; str:
+    TODO.add(text)
+    return f&quot;Added: {text}&quot;</p><p>@tool(&quot;todo_done&quot;)
+def todo_done(index: int) -&gt; str:
+    TODO.update(index, &quot;done&quot;)
+    return f&quot;Marked task {index} as done&quot;
+</code></pre><p>---</p><h2>相对 s04 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s04)</td><td>之后 (s05)</td></tr>
+<tr><td>目标追踪</td><td>无(靠消息历史)</td><td>TODO 注入系统提示</td></tr>
+<tr><td>工具</td><td>4</td><td>6 (+todo_add, +todo_done)</td></tr>
+<tr><td>Agent loop</td><td>不变</td><td>不变(TODO 在系统提示中)</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s05_todo.py
+</code></pre><p>1. <code>帮我重构这个项目的认证模块</code>
+2. 观察 Agent 自动创建 TODO 并按顺序执行
+3. 输入 <code>/todo</code> 查看当前计划状态</p><p>---</p><h2>本章小结</h2><ul>
+<li>TODO 注入系统提示,防止长任务漂移</li>
+<li>Agent 可以通过工具自主更新计划</li>
+<li>简单但有效:一个列表解决 80% 的规划问题</li>
+</ul>
+            <div class="nav-bottom"><a href="s04.html">← 上一章</a><a href="index.html">目录</a><a href="s06.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>

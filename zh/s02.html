@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第2章 工具与文件 - AI Agent 工程实战</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; color: #333; background: #f8f9fa; }
+        .header { background: #667eea; color: white; padding: 1.5rem 2rem; position: sticky; top: 0; z-index: 100; }
+        .header a { color: white; text-decoration: none; }
+        .header .back { opacity: 0.8; }
+        .header .back:hover { opacity: 1; }
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+        .content { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+        h1 { color: #667eea; margin: 1rem 0; font-size: 1.8rem; }
+        h2 { color: #667eea; margin: 1.5rem 0 0.8rem; font-size: 1.4rem; border-bottom: 2px solid #eee; padding-bottom: 0.3rem; }
+        h3 { color: #555; margin: 1.2rem 0 0.5rem; font-size: 1.2rem; }
+        p { margin: 0.8rem 0; }
+        pre { background: #1e1e1e; color: #d4d4d4; padding: 1.2rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem; }
+        :not(pre) > code { background: #f1f3f5; padding: 0.15rem 0.4rem; border-radius: 4px; color: #e83e8c; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #dee2e6; padding: 0.6rem 1rem; text-align: left; }
+        th { background: #f8f9fa; font-weight: 600; }
+        ul { margin: 0.8rem 0; padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        strong { color: #333; }
+        .nav-bottom { display: flex; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; }
+        .nav-bottom a { color: #667eea; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #667eea; border-radius: 6px; }
+        .nav-bottom a:hover { background: #667eea; color: white; }
+        blockquote { border-left: 4px solid #667eea; padding: 0.8rem 1rem; margin: 1rem 0; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="index.html" class="back">← 返回目录</a>
+    </div>
+    <div class="container">
+        <div class="content">
+            <h1>第 2 章:工具与文件 -- 给 Agent 加一个工具只需要加一行</h1><table>
+<tr></tr>
+</table><p>> *"加一个工具,只加一个 handler"* -- 循环不用动,新工具注册进 dispatch map 就行。
+>
+> <strong>Harness 层</strong>: 工具分发 -- 扩展模型能触达的边界。</p><p>---</p><h2>本章导读</h2><h3>读完这一章,你能做到什么</h3></p><p>1. 理解为什么只有 <code>bash</code> 工具是不够的。
+2. 掌握 dispatch map 模式:加工具 = 加 handler + 加 schema,循环不变。
+3. 实现路径沙箱,防止 Agent 逃逸工作目录。
+4. 从 1 个工具扩展到 4 个工具:bash、read_file、write_file、edit_file。</p><h3>你需要先具备什么</h3></p><table>
+<tr><td>需要</td><td>程度</td></tr>
+<tr><td>上一章</td><td>读过第 1 章,理解 Agent Loop</td></tr>
+<tr><td>Python</td><td>字典、函数定义、路径操作</td></tr>
+</table><h3>术语速查</h3></p><table>
+<tr><td>术语</td><td>一句话解释</td></tr>
+<tr><td><strong>Dispatch map</strong></td><td>工具名到处理函数的字典映射,替代 if/elif 链</td></tr>
+<tr><td><strong>safe_path()</strong></td><td>路径沙箱函数,确保文件操作不逃逸工作目录</td></tr>
+<tr><td><strong>Tool schema</strong></td><td>工具的 JSON Schema 描述,告诉模型工具接受什么参数</td></tr>
+</table><p>---</p><h2>问题</h2><p>只有 <code>bash</code> 时,所有操作都走 shell。<code>cat</code> 截断不可预测,<code>sed</code> 遇到特殊字符就崩,每次 bash 调用都是不受约束的安全面。</p><p>关键洞察:<strong>加工具不需要改循环。</strong> 只需要加 handler + 加 schema。</p><p>---</p><h2>解决方案</h2><pre><code class="language-">+--------+      +-------+      +------------------+
+<table>
+<tr><td>prompt</td><td></td><td></td><td></td><td>{</td></tr>
+<tr><td>read: run_read</td></tr>
+<tr><td></td><td>write: run_wr</td></tr>
+<tr><td>}</td></tr>
+</table>
+                                +------------------+
+</code></pre><p>dispatch map 是一个字典:<code>{tool_name: handler_function}</code>。一个查找替代任何 if/elif 链。</p><p>---</p><h2>工作原理</h2><h3>1. 路径沙箱</h3></p><pre><code class="language-python">from pathlib import Path</p><p>WORKDIR = Path.cwd()</p><p>def safe_path(p: str) -&gt; Path:
+    &quot;&quot;&quot;确保路径在工作目录内&quot;&quot;&quot;
+    path = (WORKDIR / p).resolve()
+    if not path.is_relative_to(WORKDIR):
+        raise ValueError(f&quot;Path escapes workspace: {p}&quot;)
+    return path
+</code></pre><h3>2. 四个工具的 handler</h3></p><pre><code class="language-python">def run_bash(command: str) -&gt; str:
+    import subprocess
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+    return result.stdout + result.stderr</p><p>def run_read(path: str, limit: int = None) -&gt; str:
+    text = safe_path(path).read_text(encoding=&quot;utf-8&quot;)
+    lines = text.splitlines()
+    if limit and limit &lt; len(lines):
+        lines = lines[:limit]
+    return &quot;\n&quot;.join(lines)[:50000]</p><p>def run_write(path: str, content: str) -&gt; str:
+    p = safe_path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding=&quot;utf-8&quot;)
+    return f&quot;Written {len(content)} bytes to {path}&quot;</p><p>def run_edit(path: str, old_text: str, new_text: str) -&gt; str:
+    p = safe_path(path)
+    text = p.read_text(encoding=&quot;utf-8&quot;)
+    if old_text not in text:
+        return f&quot;Error: old_text not found in {path}&quot;
+    new = text.replace(old_text, new_text, 1)
+    p.write_text(new, encoding=&quot;utf-8&quot;)
+    return f&quot;Edited {path}&quot;
+</code></pre><h3>3. Dispatch map</h3></p><pre><code class="language-python">TOOL_HANDLERS = {
+    &quot;bash&quot;:       lambda **kw: run_bash(kw[&quot;command&quot;]),
+    &quot;read_file&quot;:  lambda **kw: run_read(kw[&quot;path&quot;], kw.get(&quot;limit&quot;)),
+    &quot;write_file&quot;: lambda **kw: run_write(kw[&quot;path&quot;], kw[&quot;content&quot;]),
+    &quot;edit_file&quot;:  lambda **kw: run_edit(kw[&quot;path&quot;], kw[&quot;old_text&quot;], kw[&quot;new_text&quot;]),
+}
+</code></pre><h3>4. 循环中按名称查找</h3></p><pre><code class="language-python">for block in response.content:
+    if block.type == &quot;tool_use&quot;:
+        handler = TOOL_HANDLERS.get(block.name)
+        output = handler(**block.input) if handler else f&quot;Unknown tool: {block.name}&quot;
+        results.append({&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: block.id, &quot;content&quot;: output})
+</code></pre><p><strong>加工具 = 加 handler + 加 schema。循环永远不变。</strong></p><p>---</p><h2>相对 s01 的变更</h2><table>
+<tr><td>组件</td><td>之前 (s01)</td><td>之后 (s02)</td></tr>
+<tr><td>Tools</td><td>1 (仅 bash)</td><td>4 (bash, read, write, edit)</td></tr>
+<tr><td>Dispatch</td><td>硬编码 bash 调用</td><td><code>TOOL_HANDLERS</code> 字典</td></tr>
+<tr><td>路径安全</td><td>无</td><td><code>safe_path()</code> 沙箱</td></tr>
+<tr><td>Agent loop</td><td>不变</td><td>不变</td></tr>
+</table><p>---</p><h2>试一试</h2><pre><code class="language-bash">cd agent-tutorial
+python agents/s02_tool_use.py
+</code></pre><p>1. <code>读取 requirements.txt 的前 10 行</code>
+2. <code>创建一个 greet.py 文件,里面有一个 greet(name) 函数</code>
+3. <code>编辑 greet.py,给函数加上 docstring</code>
+4. <code>读取 greet.py 确认编辑生效了</code></p><p>---</p><h2>本章小结</h2><ul>
+<li>dispatch map 模式让加工具变得极其简单</li>
+<li><code>safe_path()</code> 在工具层做路径沙箱,比在 shell 层拦截更可靠</li>
+<li>循环体与 s01 完全一致 -- 所有扩展都在循环外围</li>
+</ul>
+            <div class="nav-bottom"><a href="s01.html">← 上一章</a><a href="index.html">目录</a><a href="s03.html">下一章 →</a></div>
+        </div>
+    </div>
+</body>
+</html>
